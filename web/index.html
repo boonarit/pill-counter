@@ -101,8 +101,19 @@ details summary{cursor:pointer;color:var(--accent);font-size:13px}
     <h2><span class="n">0</span>ภาพ</h2>
     <div class="src">cv2.imread · cv2.resize (basic*.py, 17oct.py)</div>
     <div class="row">
+      <button id="cam" type="button">📷 ถ่ายรูป</button>
+      <input type="file" id="camIn" accept="image/*" capture="environment" hidden>
       <input type="file" id="file" accept="image/*" aria-label="เลือกภาพเม็ดยา">
     </div>
+    <div class="row"><label for="sample">ภาพทดสอบ</label>
+      <select id="sample"><option value="">— เลือกภาพตัวอย่าง (40 เม็ด) —</option>
+        <option value="case1.png|40|กระจาย|ตัดกัน">กระจาย · เม็ดขาว/ถาดกรมท่า</option>
+        <option value="case2.png|40|ชิดบางส่วน|ตัดกัน">ชิดบางส่วน · เม็ดขาว/ถาดกรมท่า</option>
+        <option value="case3.png|40|ติดกันมาก|ตัดกัน">ติดกันมาก · เม็ดขาว/ถาดกรมท่า</option>
+        <option value="case4.png|40|ชิดบางส่วน|ตัดกัน">ชิดบางส่วน · เม็ดเหลือง/ถาดฟ้า</option>
+        <option value="case5.png|40|ชิดบางส่วน|ใกล้สี">ชิดบางส่วน · เม็ดขาว/กระดาษขาว</option>
+        <option value="case6.png|40|ติดกันมาก|ใกล้สี">ติดกันมาก · เม็ดชมพู/โต๊ะเทา (ลองช่อง Saturation)</option>
+      </select></div>
     <p class="note">ลากไฟล์มาวางบนภาพได้ ภาพจะถูกย่อด้านยาวเหลือ 900 px</p>
     <details style="margin-top:8px" open>
       <summary>สร้างภาพทดสอบ (รู้จำนวนจริง)</summary>
@@ -506,16 +517,20 @@ function setImage(canvas,name,truth,tags){
   if(tags){$("tDen").value=tags.den;$("tBg").value=tags.bg;}
   run();
 }
-function loadFile(f){
+function loadFile(f,truth,tags){
   if(!f||!f.type.startsWith("image/"))return;
   const url=URL.createObjectURL(f), im=new Image();
   im.onload=()=>{const s=Math.min(1,MAXD/Math.max(im.width,im.height));
     const c=document.createElement("canvas");c.width=Math.round(im.width*s);c.height=Math.round(im.height*s);
-    c.getContext("2d").drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(url);setImage(c,f.name,null,null);};
+    c.getContext("2d").drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(url);setImage(c,f.name,truth??null,tags??null);};
   im.onerror=()=>{$("probe").textContent="เปิดไฟล์นี้ไม่ได้ ลองใช้ JPG หรือ PNG";};
   im.src=url;
 }
 $("file").addEventListener("change",e=>loadFile(e.target.files[0]));
+$("cam").addEventListener("click",()=>$("camIn").click());
+$("camIn").addEventListener("change",e=>loadFile(e.target.files[0]));
+$("sample").addEventListener("change",async e=>{const [f,t,den,bg]=e.target.value.split("|");if(!f)return;
+  const b=await (await fetch("samples/"+f)).blob();loadFile(new File([b],f,{type:b.type}),+t,{den,bg});});
 const stage=$("stage");
 stage.addEventListener("dragover",e=>{e.preventDefault();stage.classList.add("drop");});
 stage.addEventListener("dragleave",()=>stage.classList.remove("drop"));
