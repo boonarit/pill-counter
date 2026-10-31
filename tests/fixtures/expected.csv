@@ -1,0 +1,8 @@
+file,truth,density,background,chan,app_cc,app_area,app_ws
+case1.png,40,กระจาย,ตัดกัน,gray,40,40,40
+case2.png,40,ชิดบางส่วน,ตัดกัน,gray,21,40,40
+case3.png,40,ติดกันมาก,ตัดกัน,gray,6,39,29
+case4.png,40,ชิดบางส่วน,ตัดกัน,gray,32,40,40
+case5.png,40,ชิดบางส่วน,ใกล้สี,gray,22,55,57
+case6.png,40,ติดกันมาก,ใกล้สี,gray,67,2626,89
+case7.png,40,ติดกันมาก,ใกล้สี,s,6,39,29

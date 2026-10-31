@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>นับเม็ดยาจากภาพ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: control rail (pipeline steps in order) | image workbench | results + experiment log below */
+:root{
+  --bg:#eef1f0; --panel:#ffffff; --ink:#18242b; --muted:#5d6b72; --line:#d5dcdc;
+  --accent:#1f6a8a; --accent-soft:#dcebf1; --count:#b56a00;
+  --good:#2e7d4f; --warn:#b07a00; --bad:#b3372f;
+  --font-body:"IBM Plex Sans Thai", system-ui, sans-serif;
+  --font-mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#11181c; --panel:#19232a; --ink:#e3eaec; --muted:#93a3aa; --line:#2b3a42;
+    --accent:#5fb3d6; --accent-soft:#1d3440; --count:#f0a73a;
+    --good:#5cc489; --warn:#e2b44a; --bad:#ef7a70; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#11181c; --panel:#19232a; --ink:#e3eaec; --muted:#93a3aa; --line:#2b3a42;
+  --accent:#5fb3d6; --accent-soft:#1d3440; --count:#f0a73a;
+  --good:#5cc489; --warn:#e2b44a; --bad:#ef7a70; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:14px;line-height:1.5}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 18px;padding:16px 20px 8px}
+header h1{font-size:20px;margin:0;text-wrap:balance}
+header p{margin:0;color:var(--muted);font-size:13px}
+.app{display:grid;grid-template-columns:330px minmax(0,1fr);gap:14px;padding:8px 20px 20px}
+@media (max-width:900px){.app{grid-template-columns:1fr;padding:8px 16px 16px}}
+.rail{display:flex;flex-direction:column;gap:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px}
+.step h2{font-size:13px;margin:0 0 8px;display:flex;align-items:center;gap:8px}
+.step h2 .n{font-family:var(--font-mono);font-size:11px;background:var(--accent-soft);color:var(--accent);border-radius:4px;padding:1px 6px}
+.src{font-family:var(--font-mono);font-size:10.5px;color:var(--muted);margin:-4px 0 8px}
+.row{display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap}
+.row label{min-width:92px;color:var(--muted);font-size:12.5px}
+.row input[type=range]{flex:1;min-width:110px;accent-color:var(--accent)}
+.row output{font-family:var(--font-mono);font-size:12px;min-width:34px;text-align:right}
+select,input[type=number],input[type=text]{font:inherit;font-size:13px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 6px}
+select{flex:1}
+button{font:inherit;font-size:13px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:6px;padding:6px 10px;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--count);outline-offset:2px}
+.main{display:flex;flex-direction:column;gap:14px;min-width:0}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+@media (max-width:640px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;cursor:pointer;text-align:left;color:var(--ink)}
+.tile[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.tile .k{font-size:12px;color:var(--muted)}
+.tile .v{font-family:var(--font-mono);font-size:30px;font-weight:600;color:var(--count);font-variant-numeric:tabular-nums;line-height:1.2}
+.tile .e{font-family:var(--font-mono);font-size:12px}
+.tile.truth{cursor:default}
+.tile.truth input{width:100%;font-family:var(--font-mono);font-size:24px;font-weight:600;padding:2px 6px;margin-top:2px}
+.e.good{color:var(--good)} .e.warn{color:var(--warn)} .e.bad{color:var(--bad)}
+.bench{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.tabs{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--line);padding:6px 6px 0}
+.tabs button{background:transparent;color:var(--muted);border:none;border-bottom:2px solid transparent;border-radius:0;padding:6px 10px;white-space:nowrap}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+.stage{position:relative;padding:10px;display:flex;justify-content:center;background:repeating-conic-gradient(var(--bg) 0 25%, transparent 0 50%) 0 0/16px 16px}
+#view{max-width:100%;height:auto;display:block;cursor:crosshair;border-radius:4px}
+.drop{outline:3px dashed var(--accent);outline-offset:-8px}
+.status{display:flex;flex-wrap:wrap;gap:6px 16px;padding:8px 12px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.status b{font-family:var(--font-mono);font-weight:500;color:var(--ink)}
+.swatch{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid var(--line);vertical-align:-2px}
+#hist{width:100%;height:80px;display:block}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media (max-width:1100px){.two{grid-template-columns:1fr}}
+h3{font-size:14px;margin:0 0 8px}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;white-space:nowrap}
+th{color:var(--muted);font-weight:500}
+td.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums;text-align:right}
+.chip{display:inline-block;font-size:11px;border-radius:10px;padding:0 7px;background:var(--accent-soft);color:var(--accent)}
+.note{font-size:12px;color:var(--muted);margin:6px 0 0}
+textarea{width:100%;font-family:var(--font-mono);font-size:11px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px}
+.check{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+details summary{cursor:pointer;color:var(--accent);font-size:13px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>นับเม็ดยาจากภาพ</h1>
+  <p>Threshold → Morphology → นับก้อน · เทียบ 3 วิธี: Connected components, หารพื้นที่, Watershed · ประมวลผลในเบราว์เซอร์ทั้งหมด</p>
+</header>
+
+<div class="app">
+<aside class="rail">
+
+  <section class="card step">
+    <h2><span class="n">0</span>ภาพ</h2>
+    <div class="src">cv2.imread · cv2.resize (basic*.py, 17oct.py)</div>
+    <div class="row">
+      <input type="file" id="file" accept="image/*" aria-label="เลือกภาพเม็ดยา">
+    </div>
+    <p class="note">ลากไฟล์มาวางบนภาพได้ ภาพจะถูกย่อด้านยาวเหลือ 900 px</p>
+    <details style="margin-top:8px" open>
+      <summary>สร้างภาพทดสอบ (รู้จำนวนจริง)</summary>
+      <div class="row"><label for="gN">จำนวนเม็ด</label><input type="range" id="gN" min="5" max="120" value="40"><output id="gNo">40</output></div>
+      <div class="row"><label for="gArr">การวาง</label>
+        <select id="gArr"><option value="spread">กระจาย ไม่ติดกัน</option><option value="touch" selected>ชิดกันบางส่วน</option><option value="pile">ติดกันมาก / ซ้อนเล็กน้อย</option></select></div>
+      <div class="row"><label for="gShape">รูปทรง</label>
+        <select id="gShape"><option value="round">กลม</option><option value="oval">รี (แคปซูล)</option><option value="mix">ผสม</option></select></div>
+      <div class="row"><label for="gPill">สีเม็ด</label>
+        <select id="gPill"><option value="#f3f1ea">ขาว</option><option value="#f0cf55">เหลือง</option><option value="#e8a1b1">ชมพู</option><option value="#e5873a">ส้ม</option><option value="#8dbde4">ฟ้า</option></select></div>
+      <div class="row"><label for="gBg">พื้นหลัง</label>
+        <select id="gBg"><option value="#26354b">ถาดสีกรมท่า</option><option value="#3d7fb8">ถาดนับยาสีฟ้า</option><option value="#b8bcbe">โต๊ะสีเทา</option><option value="#ece6c8">กระดาษครีม</option><option value="#f6f6f3">กระดาษขาว</option></select></div>
+      <div class="row"><label for="gNoise">สัญญาณรบกวน</label><input type="range" id="gNoise" min="0" max="40" value="10"><output id="gNoiseo">10</output></div>
+      <div class="row"><label for="gLight">แสงไม่สม่ำเสมอ</label><input type="range" id="gLight" min="0" max="60" value="20"><output id="gLighto">20</output></div>
+      <div class="row"><button id="gen" type="button">สร้างภาพทดสอบ</button></div>
+    </details>
+  </section>
+
+  <section class="card step">
+    <h2><span class="n">1</span>ช่องสี</h2>
+    <div class="src">cv2.cvtColor BGR2GRAY (17oct.py) · inRange (basic19.py) · คลิกดูค่าสี (basic16/17.py)</div>
+    <div class="row"><label for="chan">ใช้ช่อง</label>
+      <select id="chan">
+        <option value="gray" selected>Grayscale</option>
+        <option value="r">R</option><option value="g">G</option><option value="b">B</option>
+        <option value="s">Saturation (HSV)</option><option value="v">Value (HSV)</option>
+        <option value="bg">ระยะห่างจากสีพื้นหลัง</option>
+      </select></div>
+    <div class="row"><label>สีพื้นหลัง</label><span class="swatch" id="bgSw"></span><span id="bgTxt" style="font-family:var(--font-mono);font-size:12px">อัตโนมัติจากขอบภาพ</span></div>
+    <div class="row"><label for="clickMode">คลิกบนภาพ</label>
+      <select id="clickMode"><option value="probe">ดูค่าสี RGB/HSV</option><option value="bg">เลือกสีพื้นหลัง</option><option value="ref">ตั้งเป็นเม็ดอ้างอิง (1 เม็ด)</option></select></div>
+  </section>
+
+  <section class="card step">
+    <h2><span class="n">2</span>ลด noise</h2>
+    <div class="src">cv2.blur · medianBlur · GaussianBlur (basic35.py)</div>
+    <div class="row"><label for="blurT">ชนิด</label>
+      <select id="blurT"><option value="none">ไม่ใช้</option><option value="mean">Mean</option><option value="median">Median</option><option value="gauss" selected>Gaussian</option></select></div>
+    <div class="row"><label for="blurK">kernel</label><input type="range" id="blurK" min="3" max="15" step="2" value="5"><output id="blurKo">5</output></div>
+  </section>
+
+  <section class="card step">
+    <h2><span class="n">3</span>Threshold</h2>
+    <div class="src">cv2.threshold (basic28/31.py) · adaptiveThreshold (basic32/33.py) · Otsu</div>
+    <div class="row"><label for="thT">วิธี</label>
+      <select id="thT"><option value="otsu" selected>Otsu (อัตโนมัติ)</option><option value="manual">กำหนดเอง</option><option value="amean">Adaptive mean</option><option value="agauss">Adaptive Gaussian</option></select></div>
+    <div class="row" id="rowTh"><label for="thV">ค่า threshold</label><input type="range" id="thV" min="0" max="255" value="128"><output id="thVo">128</output></div>
+    <div class="row" id="rowBlk"><label for="blk">block size</label><input type="range" id="blk" min="11" max="151" step="2" value="51"><output id="blko">51</output></div>
+    <div class="row" id="rowC"><label for="cC">ค่า C</label><input type="range" id="cC" min="-30" max="30" value="-5"><output id="cCo">-5</output></div>
+    <div class="row"><label for="inv">ขาว = เม็ดยา</label>
+      <select id="inv"><option value="auto" selected>อัตโนมัติ (ดูจากขอบภาพ)</option><option value="bin">THRESH_BINARY</option><option value="inv">THRESH_BINARY_INV</option></select></div>
+    <canvas id="hist" width="600" height="80" aria-label="ฮิสโตแกรมของช่องสีที่ใช้"></canvas>
+    <p class="note" id="histNote">ฮิสโตแกรม (17oct-3.py) เส้นสีส้มคือค่า threshold</p>
+  </section>
+
+  <section class="card step">
+    <h2><span class="n">4</span>Morphology</h2>
+    <div class="src">cv2.erode · dilate · MORPH_OPEN/CLOSE (basic34.py)</div>
+    <div class="row"><label for="mk">kernel</label><input type="range" id="mk" min="1" max="9" step="2" value="3"><output id="mko">3</output></div>
+    <div class="row"><label for="mOpen">Opening ×</label><input type="range" id="mOpen" min="0" max="8" value="2"><output id="mOpeno">2</output></div>
+    <div class="row"><label for="mClose">Closing ×</label><input type="range" id="mClose" min="0" max="8" value="1"><output id="mCloseo">1</output></div>
+    <label class="check"><input type="checkbox" id="fill" checked> เติมรูในเม็ด (แสงสะท้อน/ตัวอักษรบนเม็ด)</label>
+  </section>
+
+  <section class="card step">
+    <h2><span class="n">5</span>นับ</h2>
+    <div class="src">connectedComponents (coin_counter.py) · findContours + contourArea (basic39/41.py) · distance transform + watershed</div>
+    <div class="row"><label for="minA">ตัดก้อนเล็ก</label><input type="range" id="minA" min="0" max="60" value="25"><output id="minAo">25%</output></div>
+    <p class="note" style="margin-top:0">ตัดก้อนที่เล็กกว่า % ของพื้นที่ก้อนกลาง (มัธยฐาน)</p>
+    <div class="row"><label for="wsF">Watershed peak</label><input type="range" id="wsF" min="30" max="90" value="60"><output id="wsFo">0.60</output></div>
+    <p class="note" style="margin-top:0">marker = จุดที่ระยะถึงขอบ ≥ ค่านี้ × ระยะสูงสุดในก้อนนั้น ค่าสูงแยกเม็ดติดกันได้มากขึ้น แต่เม็ดรีอาจถูกแบ่งเกิน</p>
+    <div class="row"><label>พื้นที่ 1 เม็ด</label><span id="refTxt" style="font-family:var(--font-mono);font-size:12px">อัตโนมัติ</span><button class="ghost" id="refReset" type="button">รีเซ็ต</button></div>
+  </section>
+</aside>
+
+<main class="main">
+  <div class="tiles" role="group" aria-label="ผลนับแต่ละวิธี">
+    <button class="tile" data-m="cc" aria-pressed="false" type="button"><div class="k">Connected components</div><div class="v" id="vcc">–</div><div class="e" id="ecc">&nbsp;</div></button>
+    <button class="tile" data-m="area" aria-pressed="false" type="button"><div class="k">หารพื้นที่</div><div class="v" id="varea">–</div><div class="e" id="earea">&nbsp;</div></button>
+    <button class="tile" data-m="ws" aria-pressed="true" type="button"><div class="k">Watershed</div><div class="v" id="vws">–</div><div class="e" id="ews">&nbsp;</div></button>
+    <div class="tile truth"><label class="k" for="truth">จำนวนจริง (นับเอง)</label><input type="number" id="truth" min="0" placeholder="?"><div class="e" id="truthSrc">&nbsp;</div></div>
+  </div>
+
+  <div class="bench" id="bench">
+    <div class="tabs" role="tablist" id="tabs">
+      <button role="tab" data-v="orig" aria-selected="false">ภาพต้นฉบับ</button>
+      <button role="tab" data-v="chan" aria-selected="false">1 ช่องสี</button>
+      <button role="tab" data-v="blur" aria-selected="false">2 Blur</button>
+      <button role="tab" data-v="bin" aria-selected="false">3 Threshold</button>
+      <button role="tab" data-v="morph" aria-selected="false">4 Morphology</button>
+      <button role="tab" data-v="dist" aria-selected="false">Distance transform</button>
+      <button role="tab" data-v="result" aria-selected="true">5 ผลนับ</button>
+    </div>
+    <div class="stage" id="stage"><canvas id="view" width="900" height="650"></canvas></div>
+    <div class="status">
+      <span>ภาพ <b id="sName">–</b></span>
+      <span>ขนาด <b id="sSize">–</b></span>
+      <span>Threshold <b id="sTh">–</b></span>
+      <span>พื้นที่ 1 เม็ด <b id="sRef">–</b> px</span>
+      <span>เวลา <b id="sMs">–</b> ms</span>
+      <span id="probe">คลิกบนภาพเพื่อดูค่าสี</span>
+    </div>
+  </div>
+
+  <div class="two">
+    <section class="card">
+      <h3>บันทึกผลการทดลอง</h3>
+      <div class="row"><label for="tDen">ความหนาแน่น</label>
+        <select id="tDen"><option value="กระจาย">กระจาย</option><option value="ชิดบางส่วน" selected>ชิดบางส่วน</option><option value="ติดกันมาก">ติดกันมาก</option></select></div>
+      <div class="row"><label for="tBg">พื้นหลัง</label>
+        <select id="tBg"><option value="ตัดกัน" selected>ตัดกันชัด</option><option value="ใกล้สี">ใกล้สีเม็ดยา</option></select></div>
+      <div class="row"><label for="tName">ชื่อภาพ</label><input type="text" id="tName" style="flex:1"></div>
+      <div class="row"><button id="logAdd" type="button">บันทึกผลภาพนี้</button><button class="ghost" id="logCopy" type="button">คัดลอก CSV</button><button class="ghost" id="logClear" type="button">ล้างตาราง</button></div>
+      <p class="note" id="logMsg">ต้องกรอกจำนวนจริงก่อนบันทึก ตารางเก็บไว้ในเบราว์เซอร์นี้เท่านั้น</p>
+      <textarea id="csvOut" rows="4" hidden aria-label="CSV"></textarea>
+      <div class="tablewrap" style="margin-top:8px"><table id="logTbl"><thead><tr><th>#</th><th>ภาพ</th><th>เงื่อนไข</th><th>จริง</th><th>CC</th><th>หารพื้นที่</th><th>WS</th><th></th></tr></thead><tbody></tbody></table></div>
+    </section>
+    <section class="card">
+      <h3>สรุปความคลาดเคลื่อนตามเงื่อนไข</h3>
+      <p class="note" style="margin-top:0">MAPE = ค่าเฉลี่ยของ |นับได้ − จริง| / จริง × 100 (ยิ่งต่ำยิ่งดี)</p>
+      <div class="tablewrap"><table id="sumTbl"><thead><tr><th>ความหนาแน่น</th><th>พื้นหลัง</th><th>n</th><th>CC</th><th>หารพื้นที่</th><th>WS</th></tr></thead><tbody></tbody></table></div>
+      <p class="note">ออกแบบตามงาน Glagolevs &amp; Freivalds (หารพื้นที่ vs watershed) และ Zu et al. 2025 (เทียบกับคนนับ) แยกผลตามความหนาแน่น × สีพื้น</p>
+    </section>
+  </div>
+</main>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const MAXD = 900;
+const S = { rgba:null, W:0, H:0, name:"", bg:null, refArea:null, view:"result", method:"ws", res:null, truthAuto:null };
+
+/* ---------- image ops (grayscale Uint8Array, W×H) ---------- */
+function toChannel(rgba, W, H, mode, bg){
+  const n=W*H, out=new Uint8Array(n);
+  for(let i=0,j=0;i<n;i++,j+=4){
+    const r=rgba[j],g=rgba[j+1],b=rgba[j+2]; let v;
+    switch(mode){
+      case "r": v=r; break; case "g": v=g; break; case "b": v=b; break;
+      case "s": { const mx=Math.max(r,g,b), mn=Math.min(r,g,b); v= mx===0?0: (mx-mn)*255/mx; break; }
+      case "v": v=Math.max(r,g,b); break;
+      case "bg": { const dr=r-bg[0],dg=g-bg[1],db=b-bg[2]; v=Math.min(255,Math.sqrt(dr*dr+dg*dg+db*db)*1.4); break; }
+      default: v=0.299*r+0.587*g+0.114*b;
+    }
+    out[i]=v;
+  }
+  return out;
+}
+function borderColor(rgba,W,H){
+  let r=0,g=0,b=0,c=0; const step=Math.max(1,Math.floor((W+H)/400));
+  const add=(x,y)=>{const j=(y*W+x)*4;r+=rgba[j];g+=rgba[j+1];b+=rgba[j+2];c++;};
+  for(let x=0;x<W;x+=step){add(x,0);add(x,H-1);add(x,2);add(x,H-3);}
+  for(let y=0;y<H;y+=step){add(0,y);add(W-1,y);add(2,y);add(W-3,y);}
+  return [r/c,g/c,b/c].map(Math.round);
+}
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+function boxBlurF(src,W,H,k){ // float output via integral image
+  const r=k>>1, I=new Float64Array((W+1)*(H+1));
+  for(let y=0;y<H;y++){let s=0;for(let x=0;x<W;x++){s+=src[y*W+x];I[(y+1)*(W+1)+x+1]=I[y*(W+1)+x+1]+s;}}
+  const out=new Float32Array(W*H);
+  for(let y=0;y<H;y++){const y0=clamp(y-r,0,H-1),y1=clamp(y+r,0,H-1);
+    for(let x=0;x<W;x++){const x0=clamp(x-r,0,W-1),x1=clamp(x+r,0,W-1);
+      const s=I[(y1+1)*(W+1)+x1+1]-I[y0*(W+1)+x1+1]-I[(y1+1)*(W+1)+x0]+I[y0*(W+1)+x0];
+      out[y*W+x]=s/((x1-x0+1)*(y1-y0+1));}}
+  return out;
+}
+function gaussF(src,W,H,k){
+  const sig=0.3*((k-1)*0.5-1)+0.8, r=k>>1, ker=new Float32Array(k); let s=0;
+  for(let i=0;i<k;i++){const d=i-r;ker[i]=Math.exp(-d*d/(2*sig*sig));s+=ker[i];}
+  for(let i=0;i<k;i++)ker[i]/=s;
+  const tmp=new Float32Array(W*H), out=new Float32Array(W*H);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){let a=0;for(let i=0;i<k;i++)a+=ker[i]*src[y*W+clamp(x+i-r,0,W-1)];tmp[y*W+x]=a;}
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){let a=0;for(let i=0;i<k;i++)a+=ker[i]*tmp[clamp(y+i-r,0,H-1)*W+x];out[y*W+x]=a;}
+  return out;
+}
+function median(src,W,H,k){
+  const r=k>>1, out=new Uint8Array(W*H), half=(k*k+1)>>1, hist=new Int32Array(256);
+  for(let y=0;y<H;y++){
+    hist.fill(0);
+    for(let dy=-r;dy<=r;dy++){const yy=clamp(y+dy,0,H-1);for(let dx=-r;dx<=r;dx++)hist[src[yy*W+clamp(dx,0,W-1)]]++;}
+    for(let x=0;x<W;x++){
+      if(x>0){const xo=clamp(x-r-1,0,W-1),xn=clamp(x+r,0,W-1);
+        for(let dy=-r;dy<=r;dy++){const yy=clamp(y+dy,0,H-1)*W;hist[src[yy+xo]]--;hist[src[yy+xn]]++;}}
+      let c=0,v=0;for(;v<256;v++){c+=hist[v];if(c>=half)break;}
+      out[y*W+x]=v;
+    }
+  }
+  return out;
+}
+const toU8=f=>{const o=new Uint8Array(f.length);for(let i=0;i<f.length;i++)o[i]=f[i]+0.5;return o;};
+function otsu(img){
+  const h=new Float64Array(256);for(let i=0;i<img.length;i++)h[img[i]]++;
+  const n=img.length;let sum=0;for(let i=0;i<256;i++)sum+=i*h[i];
+  let sB=0,wB=0,best=0,t=128;
+  for(let i=0;i<256;i++){wB+=h[i];if(!wB)continue;const wF=n-wB;if(!wF)break;sB+=i*h[i];
+    const mB=sB/wB,mF=(sum-sB)/wF,v=wB*wF*(mB-mF)*(mB-mF);if(v>best){best=v;t=i;}}
+  return t;
+}
+function minmaxPass(src,W,H,r,isMax){
+  const tmp=new Uint8Array(W*H), out=new Uint8Array(W*H);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){let m=isMax?0:255;
+    for(let d=-r;d<=r;d++){const v=src[y*W+clamp(x+d,0,W-1)];if(isMax?v>m:v<m)m=v;}tmp[y*W+x]=m;}
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){let m=isMax?0:255;
+    for(let d=-r;d<=r;d++){const v=tmp[clamp(y+d,0,H-1)*W+x];if(isMax?v>m:v<m)m=v;}out[y*W+x]=m;}
+  return out;
+}
+const erode=(b,W,H,k,it)=>{for(let i=0;i<it;i++)b=minmaxPass(b,W,H,k>>1,false);return b;};
+const dilate=(b,W,H,k,it)=>{for(let i=0;i<it;i++)b=minmaxPass(b,W,H,k>>1,true);return b;};
+function fillHoles(b,W,H){
+  const seen=new Uint8Array(W*H), st=[];
+  const push=i=>{if(!seen[i]&&!b[i]){seen[i]=1;st.push(i);}};
+  for(let x=0;x<W;x++){push(x);push((H-1)*W+x);} for(let y=0;y<H;y++){push(y*W);push(y*W+W-1);}
+  while(st.length){const i=st.pop(),x=i%W,y=(i-x)/W;
+    if(x>0)push(i-1);if(x<W-1)push(i+1);if(y>0)push(i-W);if(y<H-1)push(i+W);}
+  const o=new Uint8Array(W*H);for(let i=0;i<W*H;i++)o[i]=(b[i]||!seen[i])?255:0;return o;
+}
+function components(b,W,H){ // 8-connected
+  const lab=new Int32Array(W*H), st=new Int32Array(W*H); const comps=[]; let n=0;
+  for(let s=0;s<W*H;s++){ if(!b[s]||lab[s])continue; n++;
+    let sp=0; st[sp++]=s; lab[s]=n; let area=0,sx=0,sy=0,x0=W,y0=H,x1=0,y1=0;
+    while(sp){const i=st[--sp],x=i%W,y=(i-x)/W; area++;sx+=x;sy+=y;
+      if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;
+      for(let dy=-1;dy<=1;dy++){const yy=y+dy;if(yy<0||yy>=H)continue;
+        for(let dx=-1;dx<=1;dx++){const xx=x+dx;if(xx<0||xx>=W)continue;const j=yy*W+xx;
+          if(b[j]&&!lab[j]){lab[j]=n;st[sp++]=j;}}}}
+    comps.push({id:n,area,cx:sx/area,cy:sy/area,x0,y0,x1,y1});
+  }
+  return {lab,comps};
+}
+function edt(b,W,H){ // exact Euclidean distance transform (Felzenszwalb & Huttenlocher)
+  const INF=1e20, N=Math.max(W,H), f=new Float64Array(N), d=new Float64Array(N), v=new Int32Array(N), z=new Float64Array(N+1);
+  const g=new Float64Array(W*H);
+  const dt1=(n)=>{let k=0;v[0]=0;z[0]=-INF;z[1]=INF;
+    for(let q=1;q<n;q++){let s=((f[q]+q*q)-(f[v[k]]+v[k]*v[k]))/(2*q-2*v[k]);
+      while(s<=z[k]){k--;s=((f[q]+q*q)-(f[v[k]]+v[k]*v[k]))/(2*q-2*v[k]);}
+      k++;v[k]=q;z[k]=s;z[k+1]=INF;}
+    k=0;for(let q=0;q<n;q++){while(z[k+1]<q)k++;d[q]=(q-v[k])*(q-v[k])+f[v[k]];}};
+  for(let x=0;x<W;x++){for(let y=0;y<H;y++)f[y]=b[y*W+x]?INF:0;dt1(H);for(let y=0;y<H;y++)g[y*W+x]=d[y];}
+  const out=new Float32Array(W*H);
+  for(let y=0;y<H;y++){for(let x=0;x<W;x++)f[x]=g[y*W+x];dt1(W);for(let x=0;x<W;x++)out[y*W+x]=Math.sqrt(d[x]);}
+  return out;
+}
+function medianOf(a){if(!a.length)return 0;const s=[...a].sort((p,q)=>p-q);const m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2;}
+
+/* ---------- pipeline ---------- */
+function P(){ return {
+  chan:$("chan").value, blurT:$("blurT").value, blurK:+$("blurK").value,
+  thT:$("thT").value, thV:+$("thV").value, blk:+$("blk").value, C:+$("cC").value, inv:$("inv").value,
+  mk:+$("mk").value, mOpen:+$("mOpen").value, mClose:+$("mClose").value, fill:$("fill").checked,
+  minA:+$("minA").value/100, wsF:+$("wsF").value/100 }; }
+
+function run(){
+  if(!S.rgba)return;
+  const t0=performance.now(), p=P(), W=S.W, H=S.H, n=W*H;
+  const bg=S.bg||borderColor(S.rgba,W,H);
+  const chan=toChannel(S.rgba,W,H,p.chan,bg);
+  let blur=chan;
+  if(p.blurT==="mean")blur=toU8(boxBlurF(chan,W,H,p.blurK));
+  else if(p.blurT==="gauss")blur=toU8(gaussF(chan,W,H,p.blurK));
+  else if(p.blurT==="median")blur=median(chan,W,H,p.blurK);
+
+  let bin=new Uint8Array(n), th=null;
+  if(p.thT==="otsu"||p.thT==="manual"){
+    th=p.thT==="otsu"?otsu(blur):p.thV;
+    for(let i=0;i<n;i++)bin[i]=blur[i]>th?255:0;
+  }else{
+    const m=p.thT==="amean"?boxBlurF(blur,W,H,p.blk):gaussF(blur,W,H,Math.min(p.blk,61));
+    for(let i=0;i<n;i++)bin[i]=blur[i]>m[i]-p.C?255:0;
+  }
+  // decide which side is "pill"
+  let invert=p.inv==="inv";
+  if(p.inv==="auto"){let w=0,c=0;
+    for(let x=0;x<W;x++){w+=(bin[x]?1:0)+(bin[(H-1)*W+x]?1:0);c+=2;}
+    for(let y=0;y<H;y++){w+=(bin[y*W]?1:0)+(bin[y*W+W-1]?1:0);c+=2;}
+    invert=w/c>0.5;}
+  if(invert)for(let i=0;i<n;i++)bin[i]=255-bin[i];
+
+  let m=bin;
+  if(p.mOpen>0)m=dilate(erode(m,W,H,p.mk,p.mOpen),W,H,p.mk,p.mOpen);
+  if(p.mClose>0)m=erode(dilate(m,W,H,p.mk,p.mClose),W,H,p.mk,p.mClose);
+  if(p.fill)m=fillHoles(m,W,H);
+
+  // components + size filter
+  const cc=components(m,W,H);
+  const big=cc.comps.filter(c=>c.area>=20).map(c=>c.area);
+  const medA=medianOf(big), minArea=Math.max(12,medA*p.minA);
+  const keep=new Uint8Array(cc.comps.length+1); const kept=[];
+  for(const c of cc.comps){if(c.area>=minArea){keep[c.id]=1;kept.push(c);}}
+  const mask=new Uint8Array(n);for(let i=0;i<n;i++)if(keep[cc.lab[i]])mask[i]=255;
+
+  // Method C: distance transform + marker watershed
+  const dist=edt(mask,W,H);
+  const cmax=new Float32Array(cc.comps.length+1);
+  for(let i=0;i<n;i++){const l=cc.lab[i];if(keep[l]&&dist[i]>cmax[l])cmax[l]=dist[i];}
+  const mk=new Uint8Array(n);
+  for(let i=0;i<n;i++){const l=cc.lab[i];if(keep[l]&&dist[i]>=p.wsF*cmax[l]&&dist[i]>=1)mk[i]=255;}
+  const mc=components(mk,W,H);
+  const wl=new Int32Array(n); let maxD=0; for(let i=0;i<n;i++)if(dist[i]>maxD)maxD=dist[i];
+  const L=Math.ceil(maxD*2)+2, buckets=Array.from({length:L},()=>[]);
+  for(let i=0;i<n;i++)if(mc.lab[i]){wl[i]=mc.lab[i];buckets[Math.floor(dist[i]*2)].push(i);}
+  for(let lev=L-1;lev>=0;lev--){const B=buckets[lev];
+    while(B.length){const i=B.pop(),x=i%W,y=(i-x)/W;
+      const nb=[x>0?i-1:-1,x<W-1?i+1:-1,y>0?i-W:-1,y<H-1?i+W:-1];
+      for(const j of nb){if(j<0||!mask[j]||wl[j])continue;wl[j]=wl[i];
+        const lj=Math.min(lev,Math.floor(dist[j]*2));buckets[lj].push(j);}}}
+  const wsRegions=mc.comps.map(c=>({...c,area:0}));
+  for(let i=0;i<n;i++)if(wl[i])wsRegions[wl[i]-1].area++;
+
+  // Method B: area division. Auto reference = median watershed region (≈ one pill), or a pill the user clicked
+  const ref=S.refArea||medianOf(wsRegions.map(c=>c.area).filter(a=>a>0))||medianOf(kept.map(c=>c.area))||1;
+  let areaTotal=0; for(const c of kept){c.est=Math.max(1,Math.round(c.area/ref));areaTotal+=c.est;}
+
+  S.res={chan,blur,bin,morph:m,mask,dist,maxD,cc,kept,keep,ref,medA,minArea,areaTotal,wl,ws:mc.comps,wsRegions,th,invert,bg};
+  S.lastMs=Math.round(performance.now()-t0);
+  showCounts(); draw(); drawHist(blur,th);
+  $("sTh").textContent=(th===null?"adaptive":th)+(invert?" (INV)":"");
+  $("sRef").textContent=Math.round(ref)+(S.refArea?" (เลือกเอง)":"");
+  $("sMs").textContent=S.lastMs;
+  $("refTxt").textContent=S.refArea?Math.round(S.refArea)+" px (เลือกเอง)":"อัตโนมัติ ≈ "+Math.round(ref)+" px (มัธยฐานของ region watershed)";
+  const bgc=S.bg||bg; $("bgSw").style.background=`rgb(${bgc})`;
+  $("bgTxt").textContent=(S.bg?"เลือกเอง ":"จากขอบภาพ ")+`rgb(${bgc.join(",")})`;
+}
+
+/* ---------- counts & errors ---------- */
+function counts(){const r=S.res;return r?{cc:r.kept.length,area:r.areaTotal,ws:r.ws.length}:null;}
+function showCounts(){
+  const c=counts(); if(!c)return; const t=parseInt($("truth").value,10);
+  for(const k of ["cc","area","ws"]){
+    $("v"+k).textContent=c[k]; const e=$("e"+k);
+    if(Number.isFinite(t)&&t>0){const d=c[k]-t,pc=Math.abs(d)/t*100;
+      e.textContent=(d>0?"+":"")+d+" เม็ด · "+pc.toFixed(1)+"%";
+      e.className="e "+(pc<=2?"good":pc<=10?"warn":"bad");}
+    else{e.textContent="กรอกจำนวนจริงเพื่อดูค่าผิด";e.className="e";}
+  }
+  document.querySelectorAll(".tile[data-m]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.m===S.method));
+}
+
+/* ---------- drawing ---------- */
+const view=$("view"), vctx=view.getContext("2d");
+function hueColor(i){const h=(i*137.508)%360;return hsl2rgb(h/360,0.75,0.55);}
+function hsl2rgb(h,s,l){const q=l<0.5?l*(1+s):l+s-l*s,p=2*l-q;
+  const f=t=>{t=(t+1)%1;return t<1/6?p+(q-p)*6*t:t<1/2?q:t<2/3?p+(q-p)*(2/3-t)*6:p;};
+  return [f(h+1/3)*255,f(h)*255,f(h-1/3)*255].map(Math.round);}
+function grayToImage(g){const W=S.W,H=S.H,id=vctx.createImageData(W,H);
+  for(let i=0,j=0;i<W*H;i++,j+=4){id.data[j]=id.data[j+1]=id.data[j+2]=g[i];id.data[j+3]=255;}return id;}
+function draw(){
+  const r=S.res, W=S.W, H=S.H; if(!r)return;
+  view.width=W; view.height=H;
+  const v=S.view;
+  if(v==="orig"){vctx.putImageData(new ImageData(new Uint8ClampedArray(S.rgba),W,H),0,0);return;}
+  if(v==="chan"){vctx.putImageData(grayToImage(r.chan),0,0);return;}
+  if(v==="blur"){vctx.putImageData(grayToImage(r.blur),0,0);return;}
+  if(v==="bin"){vctx.putImageData(grayToImage(r.bin),0,0);return;}
+  if(v==="morph"){vctx.putImageData(grayToImage(r.mask),0,0);return;}
+  if(v==="dist"){const id=vctx.createImageData(W,H),mx=r.maxD||1;
+    for(let i=0,j=0;i<W*H;i++,j+=4){const t=r.dist[i]/mx;
+      id.data[j]=255*Math.min(1,t*2.2);id.data[j+1]=255*Math.max(0,Math.min(1,t*2-0.6));id.data[j+2]=r.mask[i]?60+120*(1-t):0;id.data[j+3]=255;}
+    vctx.putImageData(id,0,0);return;}
+  // result overlay
+  const id=new ImageData(new Uint8ClampedArray(S.rgba),W,H), d=id.data;
+  let lab, colorOf, items;
+  if(S.method==="ws"){lab=r.wl;colorOf=l=>hueColor(l);items=r.ws.map((c,i)=>({x:c.cx,y:c.cy,t:String(i+1)}));}
+  else{lab=r.cc.lab;const ks=r.keep;
+    colorOf=l=>ks[l]?(S.method==="area"&&r.cc.comps[l-1].est>1?[230,80,60]:hueColor(l)):null;
+    items=r.kept.map((c,i)=>({x:c.cx,y:c.cy,t:S.method==="area"?(c.est>1?"×"+c.est:"1"):String(i+1)}));}
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){const i=y*W+x,l=lab[i];if(!l)continue;
+    if(S.method!=="ws"&&!r.keep[l])continue; const col=colorOf(l); if(!col)continue;
+    const edge=(x===0||lab[i-1]!==l)||(x===W-1||lab[i+1]!==l)||(y===0||lab[i-W]!==l)||(y===H-1||lab[i+W]!==l);
+    const a=edge?1:0.33, j=i*4;
+    d[j]=d[j]*(1-a)+col[0]*a; d[j+1]=d[j+1]*(1-a)+col[1]*a; d[j+2]=d[j+2]*(1-a)+col[2]*a;}
+  vctx.putImageData(id,0,0);
+  const fs=Math.max(11,Math.round(Math.sqrt(r.ref)*0.42));
+  vctx.font=`600 ${fs}px "IBM Plex Mono", monospace`; vctx.textAlign="center"; vctx.textBaseline="middle";
+  vctx.lineWidth=3; vctx.strokeStyle="rgba(0,0,0,.75)"; vctx.fillStyle="#fff";
+  for(const it of items){vctx.strokeText(it.t,it.x,it.y);vctx.fillText(it.t,it.x,it.y);}
+  const label={cc:"Connected components",area:"Area division",ws:"Watershed"}[S.method];
+  const c=counts()[S.method], txt=`${label}: ${c}`;
+  vctx.font=`600 ${Math.max(16,Math.round(W/34))}px "IBM Plex Mono", monospace`; vctx.textAlign="left"; vctx.textBaseline="top";
+  const tw=vctx.measureText(txt).width; vctx.fillStyle="rgba(0,0,0,.6)"; vctx.fillRect(8,8,tw+16,Math.max(16,W/34)+12);
+  vctx.fillStyle="#ffd27a"; vctx.fillText(txt,16,14);
+}
+function drawHist(img,th){
+  const c=$("hist"), x=c.getContext("2d"), cs=getComputedStyle(document.documentElement);
+  const Wc=c.width,Hc=c.height,h=new Float64Array(256);for(let i=0;i<img.length;i++)h[img[i]]++;
+  const mx=Math.max(...h)||1; x.clearRect(0,0,Wc,Hc);
+  x.fillStyle=cs.getPropertyValue("--accent").trim(); x.globalAlpha=.75;
+  for(let i=0;i<256;i++){const bh=Math.sqrt(h[i]/mx)*(Hc-4);x.fillRect(i*Wc/256,Hc-bh,Wc/256+0.5,bh);}
+  x.globalAlpha=1;
+  if(th!==null){x.strokeStyle=cs.getPropertyValue("--count").trim();x.lineWidth=2;x.beginPath();x.moveTo(th*Wc/256,0);x.lineTo(th*Wc/256,Hc);x.stroke();}
+  $("histNote").textContent=th===null?"ฮิสโตแกรม (สเกล √) · adaptive threshold ใช้ค่าต่างกันในแต่ละบริเวณ":"ฮิสโตแกรม (สเกล √) · เส้นสีส้ม = threshold "+th;
+}
+
+/* ---------- loading images ---------- */
+function setImage(canvas,name,truth,tags){
+  const W=canvas.width,H=canvas.height;
+  S.rgba=canvas.getContext("2d").getImageData(0,0,W,H).data; S.W=W; S.H=H; S.name=name; S.bg=null; S.refArea=null;
+  $("sName").textContent=name; $("sSize").textContent=W+"×"+H; $("tName").value=name;
+  $("truth").value=truth??""; S.truthAuto=truth??null;
+  $("truthSrc").textContent=truth!=null?"จากภาพทดสอบ":" ";
+  if(tags){$("tDen").value=tags.den;$("tBg").value=tags.bg;}
+  run();
+}
+function loadFile(f){
+  if(!f||!f.type.startsWith("image/"))return;
+  const url=URL.createObjectURL(f), im=new Image();
+  im.onload=()=>{const s=Math.min(1,MAXD/Math.max(im.width,im.height));
+    const c=document.createElement("canvas");c.width=Math.round(im.width*s);c.height=Math.round(im.height*s);
+    c.getContext("2d").drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(url);setImage(c,f.name,null,null);};
+  im.onerror=()=>{$("probe").textContent="เปิดไฟล์นี้ไม่ได้ ลองใช้ JPG หรือ PNG";};
+  im.src=url;
+}
+$("file").addEventListener("change",e=>loadFile(e.target.files[0]));
+const stage=$("stage");
+stage.addEventListener("dragover",e=>{e.preventDefault();stage.classList.add("drop");});
+stage.addEventListener("dragleave",()=>stage.classList.remove("drop"));
+stage.addEventListener("drop",e=>{e.preventDefault();stage.classList.remove("drop");loadFile(e.dataTransfer.files[0]);});
+
+/* ---------- synthetic test images ---------- */
+function rng(seed){let s=seed>>>0;return()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;};}
+function hex2rgb(h){return [1,3,5].map(i=>parseInt(h.slice(i,i+2),16));}
+function shade(rgb,f){return `rgb(${rgb.map(v=>clamp(Math.round(v*f),0,255)).join(",")})`;}
+function generate(seed){
+  const N=+$("gN").value, arr=$("gArr").value, shape=$("gShape").value, pill=hex2rgb($("gPill").value), bg=hex2rgb($("gBg").value);
+  const noise=+$("gNoise").value, light=+$("gLight").value/100, R=rng(seed||Date.now());
+  const W=900,H=650, base=Math.max(14,Math.min(30,Math.sqrt(W*H*0.30/N/Math.PI)));
+  const pills=[];
+  const mk=()=>{const oval=shape==="oval"||(shape==="mix"&&R()<0.5);
+    return oval?{a:base*1.5,b:base*0.82,rot:R()*Math.PI,oval:true}:{a:base,b:base,rot:0,oval:false};};
+  const eff=p=>(p.a+p.b)/2, M=12;
+  for(let k=0;k<N;k++){
+    const p=mk(); let ok=false;
+    for(let t=0;t<600&&!ok;t++){
+      if(arr!=="spread"&&pills.length&&R()<(arr==="pile"?0.9:0.55)){
+        const q=pills[Math.floor(R()*pills.length)],ang=R()*Math.PI*2,dd=(eff(p)+eff(q))*(arr==="pile"?0.9:1.0);
+        p.x=q.x+Math.cos(ang)*dd; p.y=q.y+Math.sin(ang)*dd;
+      }else{p.x=M+p.a+R()*(W-2*M-2*p.a);p.y=M+p.a+R()*(H-2*M-2*p.a);}
+      if(p.x<M+p.a||p.y<M+p.a||p.x>W-M-p.a||p.y>H-M-p.a)continue;
+      const gap=arr==="spread"?1.25:arr==="touch"?0.98:0.86;
+      ok=pills.every(q=>{const need=(arr==="spread"?Math.max(p.a,q.a)*2:eff(p)+eff(q))*gap;return Math.hypot(p.x-q.x,p.y-q.y)>=need;});
+    }
+    if(ok)pills.push(p);
+  }
+  const c=document.createElement("canvas");c.width=W;c.height=H;const x=c.getContext("2d");
+  x.fillStyle=`rgb(${bg})`;x.fillRect(0,0,W,H);
+  if(light>0){const g=x.createLinearGradient(0,0,W,H);g.addColorStop(0,`rgba(255,255,255,${light*0.55})`);g.addColorStop(1,`rgba(0,0,0,${light*0.6})`);x.fillStyle=g;x.fillRect(0,0,W,H);}
+  for(const p of pills){
+    x.save();x.translate(p.x,p.y);x.rotate(p.rot);
+    x.shadowColor="rgba(0,0,0,.35)";x.shadowBlur=6;x.shadowOffsetX=2;x.shadowOffsetY=3;
+    const g=x.createRadialGradient(-p.a*0.35,-p.b*0.4,p.b*0.1,0,0,Math.max(p.a,p.b));
+    g.addColorStop(0,shade(pill,1.08));g.addColorStop(0.7,shade(pill,0.97));g.addColorStop(1,shade(pill,0.78));
+    x.fillStyle=g;x.beginPath();
+    if(p.oval){const r=p.b;x.moveTo(-p.a+r,-r);x.lineTo(p.a-r,-r);x.arc(p.a-r,0,r,-Math.PI/2,Math.PI/2);x.lineTo(-p.a+r,r);x.arc(-p.a+r,0,r,Math.PI/2,Math.PI*1.5);}
+    else x.arc(0,0,p.a,0,Math.PI*2);
+    x.fill();x.shadowColor="transparent";
+    x.strokeStyle=shade(pill,0.7);x.lineWidth=1.2;
+    if(p.oval){x.beginPath();x.moveTo(0,-p.b);x.lineTo(0,p.b);x.stroke();}
+    else{x.beginPath();x.moveTo(-p.a*0.6,0);x.lineTo(p.a*0.6,0);x.stroke();}
+    x.restore();
+  }
+  if(noise>0){const id=x.getImageData(0,0,W,H),d=id.data;
+    for(let i=0;i<d.length;i+=4){const nz=(R()+R()+R()-1.5)*noise*1.4;d[i]+=nz;d[i+1]+=nz;d[i+2]+=nz;}x.putImageData(id,0,0);}
+  const cd=Math.hypot(pill[0]-bg[0],pill[1]-bg[1],pill[2]-bg[2]);
+  const den={spread:"กระจาย",touch:"ชิดบางส่วน",pill:"ติดกันมาก",pile:"ติดกันมาก"}[arr];
+  const name=`ทดสอบ-${pills.length}เม็ด-${$("gArr").selectedOptions[0].text.split(" ")[0]}-${$("gBg").selectedOptions[0].text}`;
+  setImage(c,name,pills.length,{den,bg:cd<90?"ใกล้สี":"ตัดกัน"});
+}
+$("gen").addEventListener("click",()=>generate());
+
+/* ---------- controls ---------- */
+const outs={gN:"",gNoise:"",gLight:"",blurK:"",thV:"",blk:"",cC:"",mk:"",mOpen:"",mClose:"",minA:"%",wsF:"f"};
+let tm=null; const sched=()=>{clearTimeout(tm);tm=setTimeout(run,90);};
+for(const id in outs){const el=$(id);const upd=()=>{$(id+"o").textContent=outs[id]==="f"?(el.value/100).toFixed(2):el.value+outs[id];};
+  el.addEventListener("input",()=>{upd();if(!id.startsWith("g"))sched();});upd();}
+["chan","blurT","thT","inv","fill"].forEach(id=>$(id).addEventListener("change",()=>{syncTh();sched();}));
+function syncTh(){const t=$("thT").value;$("rowTh").hidden=t!=="manual";$("rowBlk").hidden=!t.startsWith("a");$("rowC").hidden=!t.startsWith("a");}
+syncTh();
+$("truth").addEventListener("input",showCounts);
+document.querySelectorAll(".tile[data-m]").forEach(b=>b.addEventListener("click",()=>{S.method=b.dataset.m;S.view="result";syncTabs();showCounts();draw();}));
+function syncTabs(){document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.v===S.view));}
+document.querySelectorAll("#tabs button").forEach(b=>b.addEventListener("click",()=>{S.view=b.dataset.v;syncTabs();draw();}));
+$("refReset").addEventListener("click",()=>{S.refArea=null;run();});
+
+view.addEventListener("click",e=>{
+  if(!S.rgba)return; const rc=view.getBoundingClientRect();
+  const x=Math.floor((e.clientX-rc.left)*S.W/rc.width), y=Math.floor((e.clientY-rc.top)*S.H/rc.height);
+  if(x<0||y<0||x>=S.W||y>=S.H)return;
+  const j=(y*S.W+x)*4, rr=S.rgba[j],gg=S.rgba[j+1],bb=S.rgba[j+2], mode=$("clickMode").value;
+  if(mode==="bg"){S.bg=[rr,gg,bb];$("chan").value="bg";run();}
+  else if(mode==="ref"){const l=S.res.cc.lab[y*S.W+x];
+    if(l&&S.res.keep[l]){S.refArea=S.res.cc.comps[l-1].area;run();}
+    else $("probe").textContent="จุดนี้ไม่อยู่บนเม็ดยา คลิกบนเม็ดเดี่ยว 1 เม็ด";return;}
+  const mx=Math.max(rr,gg,bb),mn=Math.min(rr,gg,bb),dlt=mx-mn;
+  let h=0;if(dlt){h=mx===rr?((gg-bb)/dlt)%6:mx===gg?(bb-rr)/dlt+2:(rr-gg)/dlt+4;h=Math.round(h*60);if(h<0)h+=360;}
+  const s=mx?Math.round(dlt/mx*100):0, v=Math.round(mx/2.55);
+  $("probe").innerHTML=`(${x}, ${y}) <span class="swatch" style="background:rgb(${rr},${gg},${bb})"></span> <b>RGB ${rr},${gg},${bb}</b> · <b>HSV ${h}°,${s}%,${v}%</b>`;
+});
+
+/* ---------- experiment log ---------- */
+const KEY="pillcount.log.v1"; let LOG=[];
+try{LOG=JSON.parse(localStorage.getItem(KEY)||"[]");}catch(e){LOG=[];}
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(LOG));}catch(e){}};
+const ape=(p,t)=>Math.abs(p-t)/t*100;
+function renderLog(){
+  const tb=$("logTbl").tBodies[0]; tb.innerHTML="";
+  LOG.forEach((r,i)=>{const tr=document.createElement("tr");
+    const cell=k=>`<td class="num">${r[k]} <span style="color:var(--muted)">(${(r[k]-r.truth>0?"+":"")+(r[k]-r.truth)})</span></td>`;
+    tr.innerHTML=`<td class="num">${i+1}</td><td>${esc(r.name)}</td><td><span class="chip">${r.den}</span> <span class="chip">${r.bg}</span></td><td class="num">${r.truth}</td>${cell("cc")}${cell("area")}${cell("ws")}<td><button class="ghost" data-del="${i}" type="button" aria-label="ลบแถว ${i+1}">ลบ</button></td>`;
+    tb.appendChild(tr);});
+  tb.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click",()=>{LOG.splice(+b.dataset.del,1);save();renderLog();}));
+  const groups={}; for(const r of LOG){const k=r.den+"|"+r.bg;(groups[k]=groups[k]||[]).push(r);}
+  const sb=$("sumTbl").tBodies[0]; sb.innerHTML="";
+  const order=["กระจาย","ชิดบางส่วน","ติดกันมาก"];
+  Object.keys(groups).sort((a,b)=>order.indexOf(a.split("|")[0])-order.indexOf(b.split("|")[0])||a.localeCompare(b)).forEach(k=>{
+    const g=groups[k],[den,bg]=k.split("|"); const m=key=>g.reduce((s,r)=>s+ape(r[key],r.truth),0)/g.length;
+    const vals={cc:m("cc"),area:m("area"),ws:m("ws")}, best=Math.min(vals.cc,vals.area,vals.ws);
+    const td=key=>`<td class="num" style="${vals[key]===best?"color:var(--good);font-weight:600":""}">${vals[key].toFixed(1)}%</td>`;
+    const tr=document.createElement("tr");tr.innerHTML=`<td>${den}</td><td>${bg}</td><td class="num">${g.length}</td>${td("cc")}${td("area")}${td("ws")}`;sb.appendChild(tr);});
+  if(!LOG.length)sb.innerHTML=`<tr><td colspan="6" style="color:var(--muted)">ยังไม่มีข้อมูล บันทึกผลอย่างน้อย 1 ภาพ</td></tr>`;
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+$("logAdd").addEventListener("click",()=>{
+  const t=parseInt($("truth").value,10), c=counts();
+  if(!c){return;} if(!(t>0)){$("logMsg").textContent="กรอกจำนวนจริงก่อน แล้วกดบันทึกอีกครั้ง";$("truth").focus();return;}
+  const p=P();
+  LOG.push({name:$("tName").value||S.name,den:$("tDen").value,bg:$("tBg").value,truth:t,cc:c.cc,area:c.area,ws:c.ws,
+    params:`${p.chan}|${p.blurT}${p.blurK}|${p.thT}${p.thT==="manual"?p.thV:""}|k${p.mk}o${p.mOpen}c${p.mClose}|ws${p.wsF}`,time:new Date().toISOString()});
+  save();renderLog();$("logMsg").textContent=`บันทึกแล้ว ${LOG.length} แถว`;
+});
+$("logClear").addEventListener("click",()=>{
+  if($("logClear").dataset.arm!=="1"){$("logClear").dataset.arm="1";$("logClear").textContent="กดอีกครั้งเพื่อยืนยัน";setTimeout(()=>{$("logClear").dataset.arm="";$("logClear").textContent="ล้างตาราง";},3000);return;}
+  LOG=[];save();renderLog();$("logClear").dataset.arm="";$("logClear").textContent="ล้างตาราง";});
+$("logCopy").addEventListener("click",async()=>{
+  const rows=[["image","density","background","truth","cc","area_div","watershed","params","time"],...LOG.map(r=>[r.name,r.den,r.bg,r.truth,r.cc,r.area,r.ws,r.params,r.time])];
+  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+  const ta=$("csvOut"); ta.value=csv; ta.hidden=false;
+  try{await navigator.clipboard.writeText(csv);$("logMsg").textContent="คัดลอก CSV แล้ว วางใน Excel หรือ Google Sheets ได้เลย";}
+  catch(e){ta.select();$("logMsg").textContent="คัดลอกอัตโนมัติไม่ได้ เลือกข้อความด้านล่างแล้วกด Ctrl/Cmd+C";}
+});
+
+renderLog(); syncTabs();
+generate(20261031);
+</script>
+</body>
+</html>

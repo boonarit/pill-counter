@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.pillcounter.web</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string><string>-m</string><string>http.server</string><string>8792</string>
+    <string>--bind</string><string>127.0.0.1</string>
+    <string>--directory</string><string>__HOME__/services/pill-counter/web</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/pill-counter-web.log</string>
+</dict>
+</plist>
